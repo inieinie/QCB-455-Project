@@ -1,0 +1,28 @@
+---
+title: "QCB 445 Project Code"
+author: "Jordan Tiller and Melford Rufus"
+date: "2024-11-12"
+output: pdf_document
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(qvalue)
+```
+
+## 1 Computing q-values from p-values
+
+**-  Write an R script that does the following:**
+
+**1) Loads the file sim-pvals.txt. Hint: use the R function read.table, though other functions can be used too.**
+
+```{r,  include=FALSE}
+getwd()
+?read.table
+```
+```{r}
+
+```
