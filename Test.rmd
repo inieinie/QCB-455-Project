@@ -1,0 +1,186 @@
+
+
+```{r}
+# List all installed packages
+installed_packages <- installed.packages()[, "Package"]
+
+# Remove all installed packages
+remove.packages(installed_packages)
+
+```
+
+```{r}
+
+install.packages("BiocManager")
+
+BiocManager::install("GO.db") #Necessary to install before attempting to install chromVAR
+BiocManager::install("chromVAR", force = TRUE)
+
+
+```
+
+
+```{r}
+# Additional Packages Recommended By ChromVAR
+
+BiocManager::install("motifmatchr")
+BiocManager::install("BiocParallel")
+
+```
+
+
+```{r}
+# All other packages to be used 
+
+install.packages('hdf5r') # Reads teh h5 files from the raw data
+install.packages("Signac") # Adds to Seurat's capabilities for single-cell chromatic accessibility data
+install.packages('Seurat') # Used to analyze/visualize single-cell data
+BiocManager::install("EnsDb.Mmusculus.v79") # Gene annotation data for mice
+BiocManager::install("BSgenome.Mmusculus.UCSC.mm10") # Mice genome for GC bias correction
+BiocManager::install("GenomeInfoDb") # Assures consistency between chromosome names and genome annotation
+# For some reason, the functions using JASPAR were not responding to newer versions (e.g. 2020, 2022)
+BiocManager::install("JASPAR2016") # Database of transcription factor motifs 
+```
+
+```{r}
+library(chromVAR)
+library(motifmatchr)
+library(BSgenome.Mmusculus.UCSC.mm10) 
+library(JASPAR2016) 
+library(SummarizedExperiment)
+library(Signac)
+library(Seurat)
+```
+
+```{r}
+
+
+# Loads data and annotations
+counts <- Read10X_h5(filename = "/Users/jordantiller/Downloads/GSE162662_RAW/GSM5723631_Young_HSC_filtered_peak_bc_matrix.h5")
+
+meta <- read.csv(
+  file = '/Users/jordantiller/Downloads/GSE162662_RAW/GSM5723631_Young_HSC_singlecell.csv.gz',
+  header = TRUE,
+  row.names = 1
+)
+
+chrom_assay <- CreateChromatinAssay(
+  counts = counts,
+  sep = c(":", "-"),
+  genome = 'mm10',
+  fragments = '/Users/jordantiller/Downloads/GSE162662_RAW/GSM5723631_Young_HSC_fragments.tsv.gz',
+  min.cells = 10,
+  min.features = 200
+)
+
+data <- CreateSeuratObject(
+  counts = chrom_assay,
+  assay = "peaks",
+  meta.data = meta
+)
+
+# Annotate peaks with gene information
+annotations <- GetGRangesFromEnsDb(ensdb = EnsDb.Mmusculus.v79)
+seqlevelsStyle(annotations) <- 'UCSC'
+Annotation(data) <- annotations
+
+# Compute TSS enrichment and nucleosome signal
+data <- NucleosomeSignal(object = data)
+data <- TSSEnrichment(object = data, fast = FALSE)
+
+
+
+```
+
+```{r}
+library(Matrix)
+
+# Keep counts as sparse matrix
+chromvar_data <- GetAssayData(data, slot = "counts")
+
+# Subset peaks based on variance
+peak_variance <- apply(chromvar_data, 1, var)
+top_peaks <- order(peak_variance, decreasing = TRUE)[1:50000]
+chromvar_data <- chromvar_data[top_peaks, ]
+
+# Create SummarizedExperiment object
+chromvar_se <- SummarizedExperiment(
+  assays = list(counts = chromvar_data),
+  rowRanges = granges(data)[top_peaks],
+  colData = meta
+)
+
+# Add GC bias and compute deviations with parallelization
+chromvar_se <- addGCBias(chromvar_se, genome = BSgenome.Mmusculus.UCSC.mm10)
+
+# Process motifs in chunks
+motif_ix <- list()
+chunk_size <- 10000
+for (i in seq(1, nrow(chromvar_data), by = chunk_size)) {
+  chunk <- chromvar_data[i:min(i + chunk_size - 1, nrow(chromvar_data)), ]
+  motif_ix[[length(motif_ix) + 1]] <- matchMotifs(motifs, chunk, genome = BSgenome.Mmusculus.UCSC.mm10)
+}
+motif_ix <- do.call(c, motif_ix)
+
+# Compute deviations with parallelization
+library(BiocParallel)
+register(MulticoreParam(workers = 4))  # Adjust based on your system
+deviations <- computeDeviations(object = chromvar_se, annotations = motif_ix, BPPARAM = MulticoreParam())
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+# Get transcription factor motifs and match to peaks
+#motifs <- getJasparMotifs(collection = "CORE", species = "Mus musculus")
+#motif_ix <- matchMotifs(motifs, chromvar_se, genome = BSgenome.Mmusculus.UCSC.mm10)
+
+# ChromVAR: Compute deviations and variability
+# deviations <- computeDeviations(object = chromvar_se, annotations = motif_ix)
+variability <- computeVariability(deviations)
+
+# Visualize variability
+plotVariability(variability)
+
+# t-SNE clustering based on deviations
+tsne_results <- deviationsTsne(deviations)
+plotDeviationsTsne(tsne_results, sample_annotation = chromvar_se$orig.ident)
+
+
+
+```
+
+
+
+
+
+```{r}
+
+
+# Add GC bias and prepare counts
+data <- addGCBias(data, genome = BSgenome.Mmusculus.UCSC.mm10)
+motifs <- getJasparMotifs()  # Retrieve motif data
+motif_ix <- matchMotifs(motifs, rowRanges(data), genome = BSgenome.Mmusculus.UCSC.mm10)
+# Compute deviations and variability
+data <- computeDeviations(data, annotations = motif_ix)
+variability <- computeVariability(data)
+# Plot variability
+plotVariability(variability)
+# t-SNE of deviations
+tsne_results <- deviationsTsne(data, perplexity = 30)
+plotDeviationsTsne(data, tsne_results)
+
+
+
+
+```
+
