@@ -23,6 +23,236 @@ library(qvalue)
 getwd()
 ?read.table
 ```
+
 ```{r}
+# List all installed packages
+installed_packages <- installed.packages()[, "Package"]
+
+# Remove all installed packages
+remove.packages(installed_packages)
+
+```
+
+```{r}
+
+install.packages("BiocManager")
+BiocManager::install()
+BiocManager::install("CNEr", arch = "x86_64")
+BiocManager::install("TFBSTools")
+BiocManager::install("GO.db") #Necessary to install before attempting to install chromVAR
+BiocManager::install("chromVAR", force = TRUE)
+BiocManager::install("motifmatchr")
+BiocManager::install("BiocParallel")
+
+```
+
+
+```{r}
+# All other packages to be used 
+
+install.packages('hdf5r') # Reads teh h5 files from the raw data
+install.packages("Signac") # Adds to Seurat's capabilities for single-cell chromatic accessibility data
+install.packages('Seurat') # Used to analyze/visualize single-cell data
+BiocManager::install("EnsDb.Mmusculus.v79") # Gene annotation data for mice
+BiocManager::install("BSgenome.Mmusculus.UCSC.mm10") # Mice genome for GC bias correction
+BiocManager::install("GenomeInfoDb") # Assures consistency between chromosome names and genome annotation
+# For some reason, the functions using JASPAR were not responding to newer versions (e.g. 2020, 2022)
+BiocManager::install("JASPAR2016") # Database of transcription factor motifs 
+```
+
+
+
+```{r}
+library(chromVAR)
+library(motifmatchr)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(EnsDb.Mmusculus.v79)
+library(JASPAR2016) 
+library(SummarizedExperiment)
+library(Signac)
+library(Seurat)
+```
+```{r}
+# if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install(c("GenomicRanges", "rtracklayer"))
+install.packages("IRanges")
+
+```
+
+```{r}
+library(GenomicRanges)
+library(rtracklayer)
+library(IRanges)
+```
+
+```{r}
+# Load fragments from BED file
+fragment_file <- "C:/Users/libuser/Desktop/GSE65360_single-GM12878.peaks.bed"
+fragments <- read.table(fragment_file, header = FALSE, stringsAsFactors = FALSE)
+colnames(fragments) <- c("chrom", "start", "end")
+
+
+# Convert fragments to a GenomicRanges object
+gr_fragments <- GRanges(seqnames = fragments$chrom,
+                        ranges = IRanges(start = fragments$start, end = fragments$end + 1))
+
+
+```
+
+
+```{r}
+# Bin the genome into fixed windows
+bins <- tileGenome(seqlengths = seqlengths(gr_fragments),
+                   tilewidth = 500,  # Adjust this window size as needed
+                   cut.last.tile.in.chrom = TRUE)
+
+# Count overlaps to find accessible regions
+counts <- countOverlaps(bins, gr_fragments)
+bins$score <- counts
+
+# Filter bins based on a threshold
+threshold <- quantile(bins$score, 0.95)  # Top 5% of regions
+peaks <- bins[bins$score >= threshold]
+
+```
+
+
+```{r}
+# Prepare narrowPeak fields
+peaks$name <- paste0("peak_", seq_along(peaks)) # Unique names for peaks
+peaks$signalValue <- peaks$score
+peaks$pValue <- -1  # Placeholder; requires statistical testing
+peaks$qValue <- -1  # Placeholder; requires FDR correction
+peaks$summit <- width(peaks) / 2  # Center of peak
+
+# Export as narrowPeak
+export(peaks, con = "output_peaks.narrowPeak", format = "narrowPeak")
+
+```
+
+
+```{r}
+
+# Install chromVAR and dependencies
+# if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install("chromVAR")
+BiocManager::install("motifmatchr")
+BiocManager::install("SummarizedExperiment")
+
+# Install other dependencies
+install.packages(c("tidyverse", "ggplot2"))
+
+```
+
+
+```{r}
+
+library(chromVAR)
+library(motifmatchr)
+library(SummarizedExperiment)
+library(tidyverse)
+
+
+```
+
+
+
+```{r}
+
+# Replace with your file path
+fragment_file <- "path/to/fragments.bed"
+fragments <- read.table(fragment_file, header = FALSE, stringsAsFactors = FALSE)
+colnames(fragments) <- c("chrom", "start", "end", "barcode", "count")
+
+
+
+```
+
+
+```{r}
+# Replace with your file path
+peak_file <- "path/to/peaks.narrowPeak"
+peaks <- readNarrowpeaks(peak_file)
+
+```
+
+
+
+```{r}
+
+counts <- getCounts(fragment_file, peaks, by = "barcode", paired = TRUE)
+
+```
+
+
+```{r}
+
+counts <- addGCBias(counts, genome = BSgenome.Hsapiens.UCSC.hg19) # Change genome as needed
+
+
+```
+
+
+
+```{r}
+
+counts <- filterPeaks(counts, non_overlapping = TRUE)
+counts <- filterSamples(counts, min_depth = 500)
+
+
+```
+
+
+
+```{r}
+
+# Load motifs from cisBP or JASPAR
+motifs <- getJasparMotifs(species = "Homo sapiens")
+counts <- addMotifAnnotations(counts, motifs)
+
+
+
+```
+
+
+```{r}
+
+# Compute deviations
+deviations <- computeDeviations(object = counts, annotations = motifs)
+
+# Compute variability
+variability <- computeVariability(deviations)
+
+
+```
+
+
+
+```{r}
+
+plotVariability(variability) +
+  ggtitle("Variability of Motifs") +
+  theme_minimal()
+
+
+```
+
+
+
+```{r}
+
+
+tsne_results <- deviationsTsne(deviations, perplexity = 30)
+plotDeviationsTsne(tsne_results, sample_column = "cell_type") +
+  ggtitle("tSNE of Motif Deviations") +
+  theme_minimal()
+
+
+```
+
+
+
+```{r}
+ggsave("Figure3.png", width = 8, height = 6)
 
 ```
