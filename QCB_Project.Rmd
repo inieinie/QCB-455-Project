@@ -256,3 +256,46 @@ plotDeviationsTsne(tsne_results, sample_column = "cell_type") +
 ggsave("Figure3.png", width = 8, height = 6)
 
 ```
+
+##PREPROCESSING
+
+```{r}
+
+
+# Loads data and annotations
+counts <- Read10X_h5(filename = "C:/Users/libuser/Downloads/GSE162662_Data/GSM5723631_Young_HSC_filtered_peak_bc_matrix.h5")
+
+meta <- read.csv(
+  file = 'C:/Users/libuser/Downloads/GSE162662_Data/GSM5723631_Young_HSC_singlecell.csv.gz',
+  header = TRUE,
+  row.names = 1
+)
+
+chrom_assay <- CreateChromatinAssay(
+  counts = counts,
+  sep = c(":", "-"),
+  genome = 'mm10',
+  fragments = 'C:/Users/libuser/Downloads/GSE162662_Data/GSM5723631_Young_HSC_fragments.tsv.gz',
+  min.cells = 10,
+  min.features = 200
+)
+
+data <- CreateSeuratObject(
+  counts = chrom_assay,
+  assay = "peaks",
+  meta.data = meta
+)
+
+# Annotate peaks with gene information
+annotations <- GetGRangesFromEnsDb(ensdb = EnsDb.Mmusculus.v79)
+seqlevelsStyle(annotations) <- 'UCSC'
+Annotation(data) <- annotations
+
+# Compute TSS enrichment and nucleosome signal
+data <- NucleosomeSignal(object = data)
+data <- TSSEnrichment(object = data, fast = FALSE)
+
+
+
+```
+
